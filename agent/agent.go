@@ -16,36 +16,29 @@ import (
 
 // --- Estruturas RPC ---
 
-// ProcessInfo representa um processo que será enviado por RPC.
 type ProcessInfo struct {
 	PID    int32   `json:"pid"`
 	Name   string  `json:"name"`
-	CPU    float64 `json:"cpu"`    // porcentagem de CPU
-	Memory float32 `json:"memory"` // porcentagem de memória
+	CPU    float64 `json:"cpu"`
+	Memory float32 `json:"memory"`
 }
 
-// KillArgs recebe o PID a ser finalizado.
 type KillArgs struct {
 	PID int32 `json:"pid"`
 }
 
-// KillReply indica sucesso ou erro ao finalizar.
 type KillReply struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
 }
 
-// AgentService expõe métodos que podem ser chamados via RPC.
 type AgentService struct{}
 
-// GetProcesses retorna a lista de processos atuais (PID, nome, uso de CPU/mem).
 func (s *AgentService) GetProcesses(_ struct{}, reply *[]ProcessInfo) error {
-	// Primeiro, chama CPUPercent para inicializar as amostras
 	processList, err := ps.Processes()
 	if err != nil {
 		return err
 	}
-
 	var resultados []ProcessInfo
 	for _, p := range processList {
 		name, err := p.Name()
@@ -65,7 +58,6 @@ func (s *AgentService) GetProcesses(_ struct{}, reply *[]ProcessInfo) error {
 	return nil
 }
 
-// KillProcess tenta finalizar o processo cujo PID foi passado nos args.
 func (s *AgentService) KillProcess(args *KillArgs, reply *KillReply) error {
 	proc, err := os.FindProcess(int(args.PID))
 	if err != nil {
@@ -86,31 +78,37 @@ func main() {
 	// 1. Obter URL do servidor central de variável de ambiente
 	centralURL := os.Getenv("CENTRAL_URL")
 	if centralURL == "" {
-		log.Fatal("Defina a variável CENTRAL_URL (ex: http://IP_DO_CENTRAL:8080/register)")
+		log.Fatal("Defina a variável CENTRAL_URL (ex: http://seuVPS:8080/register)")
 	}
 
 	// 2. Identificador deste agente (hostname)
 	hostname, _ := os.Hostname()
 	agentID := hostname
 
-	// 3. Porta em que o agente vai escutar RPC
+	// 3. Porta em que o agente vai escutar RPC (padrão 9000)
 	rpcPort := os.Getenv("AGENT_RPC_PORT")
 	if rpcPort == "" {
 		rpcPort = "9000"
 	}
-	rpcAddress := fmt.Sprintf("0.0.0.0:%s", rpcPort)
+
+	// 3.1. Endereço público que será anunciado ao central via AGENT_RPC_ADDR
+	publicRPC := os.Getenv("AGENT_RPC_ADDR")
+	if publicRPC == "" {
+		// Se não definido, cai em "0.0.0.0:9000" (funciona apenas localmente)
+		publicRPC = fmt.Sprintf("0.0.0.0:%s", rpcPort)
+	}
 
 	// 4. Registrando-se no servidor central (tenta até obter 200 OK)
 	go func() {
 		for {
 			payload := map[string]string{
 				"agent_id": agentID,
-				"rpc_addr": rpcAddress, // Ex: "192.168.0.10:9000"
+				"rpc_addr": publicRPC,
 			}
 			bodyBytes, _ := json.Marshal(payload)
 			resp, err := http.Post(centralURL, "application/json", bytes.NewBuffer(bodyBytes))
 			if err != nil {
-				log.Printf("Falha ao registrar no central: %v. Tentando novamente em 5s...", err)
+				log.Printf("Falha ao registrar no central: %v. Retentando em 5s...", err)
 				time.Sleep(5 * time.Second)
 				continue
 			}
@@ -128,12 +126,13 @@ func main() {
 	agentService := new(AgentService)
 	rpc.Register(agentService)
 
-	// 6. Inicia listener TCP para RPC
-	listener, err := net.Listen("tcp", rpcAddress)
+	// 6. Inicia listener TCP para RPC em “0.0.0.0:<porta>”
+	listenAddress := fmt.Sprintf("0.0.0.0:%s", rpcPort)
+	listener, err := net.Listen("tcp", listenAddress)
 	if err != nil {
-		log.Fatalf("Erro ao escutar em %s: %v", rpcAddress, err)
+		log.Fatalf("Erro ao escutar em %s: %v", listenAddress, err)
 	}
-	log.Printf("Agente RPC escutando em %s", rpcAddress)
+	log.Printf("Agente RPC escutando em %s", listenAddress)
 
 	// 7. Aceita conexões RPC indefinidamente
 	for {
