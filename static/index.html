@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <title>Monitor de Máquinas – Trabalho Sistemas Operacionais</title>
+    <style>
+        /* Reset básico */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Fonte padrão da página */
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.5;
+        }
+
+        /* Container centralizado */
+        .container {
+            max-width: 1000px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        /* Títulos */
+        h1, h2 {
+            margin-bottom: 1rem;
+        }
+        h1 {
+            font-size: 2rem;
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        h2 {
+            font-size: 1.25rem;
+            color: #34495e;
+            margin-top: 2rem;
+            margin-bottom: 0.75rem;
+        }
+
+        /* Campo de pesquisa */
+        .search-container {
+            margin-bottom: 1rem;
+        }
+        .search-container input {
+            width: 100%;
+            max-width: 300px;
+            padding: 0.5rem 0.75rem;
+            font-size: 1rem;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            transition: border-color 0.2s ease;
+        }
+        .search-container input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        /* Tabelas estilizadas */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+            background-color: #fff;
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+        }
+        thead {
+            background-color: #3498db;
+        }
+        thead th {
+            color: #fff;
+            font-weight: bold;
+            font-size: 0.95rem;
+        }
+        tbody tr:nth-child(odd) {
+            background-color: #fafafa;
+        }
+        tbody tr:nth-child(even) {
+            background-color: #f0f0f0;
+        }
+        tbody tr:hover {
+            background-color: #e8f4fb;
+        }
+        th:first-child, td:first-child {
+            border-top-left-radius: 4px;
+            border-bottom-left-radius: 4px;
+        }
+        th:last-child,  td:last-child {
+            border-top-right-radius: 4px;
+            border-bottom-right-radius: 4px;
+        }
+
+        /* Botões de ação */
+        .btn {
+            display: inline-block;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.9rem;
+            color: #fff;
+            background-color: #2ecc71;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+            text-decoration: none;
+        }
+        .btn:hover {
+            background-color: #27ae60;
+        }
+        .btn-danger {
+            background-color: #e74c3c;
+        }
+        .btn-danger:hover {
+            background-color: #c0392b;
+        }
+
+        /* Mensagens de estado (quando não há dados) */
+        .empty-message {
+            padding: 1rem;
+            background-color: #fcf8e3;
+            border: 1px solid #faebcc;
+            border-radius: 4px;
+            color: #8a6d3b;
+            margin-bottom: 1rem;
+        }
+
+        /* Indicador de carregamento */
+        .loading {
+            font-style: italic;
+            color: #7f8c8d;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Monitor de Máquinas – Trabalho Sistemas Operacionais</h1>
+    <h4>Trabalho de gerenciador de processos de maquinas desenvolvido por: Guilherme A. Naumann, Guilherme ... e Matheus Tallmann </h4>
+
+    <!-- Seção de Agentes (permanece sem alteração) -->
+    <h2>Agentes Online</h2>
+    <div class="search-container">
+        <input
+                type="text"
+                id="agent-search"
+                placeholder="🔍 Pesquisar agente por ID ou Endereço RPC"
+        />
+    </div>
+    <div id="agents-loading" class="loading" style="display: none;">
+        Carregando agentes...
+    </div>
+    <div id="agents-empty" class="empty-message" style="display: none;">
+        Nenhum agente registrado no momento.
+    </div>
+    <table id="agents-table" style="display: none;">
+        <thead>
+        <tr>
+            <th>Agent ID</th>
+            <th>Endereço RPC</th>
+            <th>Ações</th>
+        </tr>
+        </thead>
+        <tbody id="agents-body">
+        <!-- preenchido dinamicamente -->
+        </tbody>
+    </table>
+    <ul id="agents-pagination" class="pagination" style="display: none;"></ul>
+
+    <!-- Seção de Processos sem paginação -->
+    <h2>Processos do Agente: <span id="current-agent">nenhum</span></h2>
+    <div class="search-container">
+        <input
+                type="text"
+                id="process-search"
+                placeholder="🔍 Pesquisar processo por PID ou nome"
+        />
+    </div>
+    <div id="processes-loading" class="loading" style="display: none;">
+        Carregando processos...
+    </div>
+    <div id="processes-empty" class="empty-message" style="display: none;">
+        Nenhum processo encontrado para este agente.
+    </div>
+    <table id="process-table" style="display: none;">
+        <thead>
+        <tr>
+            <th>PID</th>
+            <th>Nome</th>
+            <th>CPU (%)</th>
+            <th>Memória (%)</th>
+            <th>Ação</th>
+        </tr>
+        </thead>
+        <tbody id="process-body">
+        <!-- preenchido dinamicamente -->
+        </tbody>
+    </table>
+</div>
+
+<script>
+    // ======== AGENTES ========
+    let agentsList = [];
+    let filteredAgents = [];
+    let currentPageAgents = 1;
+    const itemsPerPageAgents = 5;
+    const maxPageButtons = 5;
+
+    const agentSearchInput = document.getElementById('agent-search');
+    const agentsBody = document.getElementById('agents-body');
+    const agentsTable = document.getElementById('agents-table');
+    const agentsLoading = document.getElementById('agents-loading');
+    const agentsEmpty = document.getElementById('agents-empty');
+    const agentsPagination = document.getElementById('agents-pagination');
+
+    function loadAgents() {
+        agentsTable.style.display = 'none';
+        agentsEmpty.style.display = 'none';
+        agentsLoading.style.display = '';
+        agentsPagination.style.display = 'none';
+
+        fetch('/agents')
+            .then(res => res.json())
+            .then(lista => {
+                agentsLoading.style.display = 'none';
+                agentsList = Array.isArray(lista) ? lista : [];
+                currentPageAgents = 1;
+                agentSearchInput.value = '';
+                applyFilterAgents();
+            })
+            .catch(err => {
+                agentsLoading.style.display = 'none';
+                console.error('Erro ao listar agentes:', err);
+                agentsEmpty.textContent = 'Erro ao carregar agentes.';
+                agentsEmpty.style.display = '';
+            });
+    }
+
+    function applyFilterAgents() {
+        const termo = agentSearchInput.value.trim().toLowerCase();
+        if (termo === '') {
+            filteredAgents = [...agentsList];
+        } else {
+            filteredAgents = agentsList.filter(agent => {
+                return (
+                    agent.ID.toLowerCase().includes(termo) ||
+                    agent.RPCAddr.toLowerCase().includes(termo)
+                );
+            });
+        }
+        const totalPages = Math.ceil(filteredAgents.length / itemsPerPageAgents) || 1;
+        if (currentPageAgents > totalPages) {
+            currentPageAgents = totalPages;
+        }
+        renderAgentsTable();
+        renderAgentsPagination();
+    }
+
+    function renderAgentsTable() {
+        agentsBody.innerHTML = '';
+
+        if (!filteredAgents.length) {
+            agentsTable.style.display = 'none';
+            agentsEmpty.textContent = 'Nenhum agente correspondente à pesquisa.';
+            agentsEmpty.style.display = '';
+            agentsPagination.style.display = 'none';
+            return;
+        }
+
+        const startIndex = (currentPageAgents - 1) * itemsPerPageAgents;
+        const endIndex = startIndex + itemsPerPageAgents;
+        const pageItems = filteredAgents.slice(startIndex, endIndex);
+
+        pageItems.forEach(agent => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+          <td>${agent.ID}</td>
+          <td>${agent.RPCAddr}</td>
+          <td>
+            <button class="btn" onclick="selectAgent('${agent.ID}')">
+              Ver Processos
+            </button>
+          </td>
+        `;
+            agentsBody.appendChild(tr);
+        });
+
+        agentsTable.style.display = '';
+        agentsEmpty.style.display = 'none';
+    }
+
+    function renderAgentsPagination() {
+        agentsPagination.innerHTML = '';
+
+        const totalItems = filteredAgents.length;
+        const totalPages = Math.ceil(totalItems / itemsPerPageAgents) || 1;
+        if (totalPages <= 1) {
+            agentsPagination.style.display = 'none';
+            return;
+        }
+
+        agentsPagination.style.display = '';
+
+        function addPageButton(page, label = null, disabled = false, active = false) {
+            const btn = document.createElement('button');
+            btn.textContent = label || page;
+            if (active) btn.classList.add('active');
+            if (disabled) btn.classList.add('disabled');
+            if (!disabled && !active) {
+                btn.addEventListener('click', () => {
+                    currentPageAgents = page;
+                    renderAgentsTable();
+                    renderAgentsPagination();
+                });
+            }
+            const li = document.createElement('li');
+            li.appendChild(btn);
+            agentsPagination.appendChild(li);
+        }
+
+        // Botão "«"
+        addPageButton(currentPageAgents - 1, '«', currentPageAgents === 1);
+
+        // Determinar faixa de páginas
+        let start = Math.max(1, currentPageAgents - Math.floor(maxPageButtons / 2));
+        let end = start + maxPageButtons - 1;
+        if (end > totalPages) {
+            end = totalPages;
+            start = Math.max(1, end - maxPageButtons + 1);
+        }
+
+        if (start > 1) {
+            addPageButton(1);
+            if (start > 2) {
+                const li = document.createElement('li');
+                const span = document.createElement('span');
+                span.textContent = '…';
+                span.classList.add('ellipsis');
+                li.appendChild(span);
+                agentsPagination.appendChild(li);
+            }
+        }
+
+        for (let p = start; p <= end; p++) {
+            addPageButton(p, null, false, p === currentPageAgents);
+        }
+
+        if (end < totalPages) {
+            if (end < totalPages - 1) {
+                const li = document.createElement('li');
+                const span = document.createElement('span');
+                span.textContent = '…';
+                span.classList.add('ellipsis');
+                li.appendChild(span);
+                agentsPagination.appendChild(li);
+            }
+            addPageButton(totalPages);
+        }
+
+        // Botão "»"
+        addPageButton(currentPageAgents + 1, '»', currentPageAgents === totalPages);
+    }
+
+    agentSearchInput.addEventListener('input', () => {
+        applyFilterAgents();
+    });
+
+
+    // ======== PROCESSOS EM TEMPO REAL (WebSocket), sem paginação ========
+    let processesList = [];
+    let filteredProcesses = [];
+
+    const processSearchInput = document.getElementById('process-search');
+    const processBody = document.getElementById('process-body');
+    const processTable = document.getElementById('process-table');
+    const processesLoading = document.getElementById('processes-loading');
+    const processesEmpty = document.getElementById('processes-empty');
+    const currentAgentSpan = document.getElementById('current-agent');
+
+    let wsProcess = null;
+
+    function selectAgent(agentID) {
+        if (wsProcess) {
+            wsProcess.close();
+            wsProcess = null;
+        }
+
+        currentAgentSpan.textContent = agentID;
+        processTable.style.display = 'none';
+        processesEmpty.style.display = 'none';
+        processesLoading.style.display = '';
+
+        const loc = window.location;
+        const protocol = loc.protocol === 'https:' ? 'wss' : 'ws';
+        const wsURL = `${protocol}://${loc.host}/agents/${agentID}/stream`;
+        wsProcess = new WebSocket(wsURL);
+
+        wsProcess.onopen = () => {};
+
+        wsProcess.onmessage = (event) => {
+            processesLoading.style.display = 'none';
+            try {
+                const lista = JSON.parse(event.data);
+                processesList = Array.isArray(lista) ? lista : [];
+            } catch {
+                processesList = [];
+            }
+            applyFilterProcesses(); // Sem página, só filtrar e renderizar
+        };
+
+        wsProcess.onerror = (err) => {
+            console.error('WebSocket erro:', err);
+        };
+
+        wsProcess.onclose = () => {};
+    }
+
+    function applyFilterProcesses() {
+        const termo = processSearchInput.value.trim().toLowerCase();
+        if (termo === '') {
+            filteredProcesses = [...processesList];
+        } else {
+            filteredProcesses = processesList.filter(p => {
+                return (
+                    p.pid.toString().includes(termo) ||
+                    p.name.toLowerCase().includes(termo)
+                );
+            });
+        }
+        renderProcessesTable();
+    }
+
+    function renderProcessesTable() {
+        processBody.innerHTML = '';
+
+        if (!filteredProcesses.length) {
+            processTable.style.display = 'none';
+            processesEmpty.textContent = 'Nenhum processo correspondente à pesquisa.';
+            processesEmpty.style.display = '';
+            return;
+        }
+
+        filteredProcesses.forEach(p => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+          <td>${p.pid}</td>
+          <td>${p.name}</td>
+          <td>${p.cpu.toFixed(1)}</td>
+          <td>${p.memory.toFixed(1)}</td>
+          <td>
+            <button class="btn btn-danger"
+                    onclick="killProcess('${currentAgentSpan.textContent}', ${p.pid})">
+              Matar
+            </button>
+          </td>
+        `;
+            processBody.appendChild(tr);
+        });
+
+        processTable.style.display = '';
+        processesEmpty.style.display = 'none';
+    }
+
+    processSearchInput.addEventListener('input', () => {
+        applyFilterProcesses();
+    });
+
+    function killProcess(agentID, pid) {
+        if (!confirm(`Deseja finalizar o processo PID ${pid} no agent "${agentID}"?`)) return;
+        fetch(`/agents/${agentID}/kill`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ pid: pid })
+        })
+            .then(res => res.json())
+            .then(reply => {
+                if (reply.success) {
+                    alert('Processo finalizado com sucesso.');
+                } else {
+                    alert('Falha ao finalizar processo: ' + reply.message);
+                }
+            })
+            .catch(err => {
+                console.error('Erro na requisição kill:', err);
+                alert('Erro na requisição kill: ' + err.message);
+            });
+    }
+
+    // Inicializa a lista de agentes ao carregar a página
+    document.addEventListener('DOMContentLoaded', loadAgents);
+</script>
+</body>
+</html>
