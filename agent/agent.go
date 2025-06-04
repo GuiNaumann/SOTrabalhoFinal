@@ -1,6 +1,7 @@
 package main
 
 import (
+	"SOTrabalhoFinal/entities"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -14,32 +15,14 @@ import (
 	ps "github.com/shirou/gopsutil/v3/process"
 )
 
-// --- Estruturas RPC ---
-
-type ProcessInfo struct {
-	PID    int32   `json:"pid"`
-	Name   string  `json:"name"`
-	CPU    float64 `json:"cpu"`
-	Memory float32 `json:"memory"`
-}
-
-type KillArgs struct {
-	PID int32 `json:"pid"`
-}
-
-type KillReply struct {
-	Success bool   `json:"success"`
-	Message string `json:"message,omitempty"`
-}
-
 type AgentService struct{}
 
-func (s *AgentService) GetProcesses(_ struct{}, reply *[]ProcessInfo) error {
+func (s *AgentService) GetProcesses(_ struct{}, reply *[]entities.ProcessInfo) error {
 	processList, err := ps.Processes()
 	if err != nil {
 		return err
 	}
-	var resultados []ProcessInfo
+	var resultados []entities.ProcessInfo
 	for _, p := range processList {
 		name, err := p.Name()
 		if err != nil {
@@ -47,7 +30,7 @@ func (s *AgentService) GetProcesses(_ struct{}, reply *[]ProcessInfo) error {
 		}
 		cpuPercent, _ := p.CPUPercent()
 		memPercent, _ := p.MemoryPercent()
-		resultados = append(resultados, ProcessInfo{
+		resultados = append(resultados, entities.ProcessInfo{
 			PID:    p.Pid,
 			Name:   name,
 			CPU:    cpuPercent,
@@ -58,14 +41,15 @@ func (s *AgentService) GetProcesses(_ struct{}, reply *[]ProcessInfo) error {
 	return nil
 }
 
-func (s *AgentService) KillProcess(args *KillArgs, reply *KillReply) error {
+func (s *AgentService) KillProcess(args *entities.KillArgs, reply *entities.KillReply) error {
 	proc, err := os.FindProcess(int(args.PID))
 	if err != nil {
 		reply.Success = false
 		reply.Message = fmt.Sprintf("PID %d não encontrado: %v", args.PID, err)
 		return nil
 	}
-	if err := proc.Kill(); err != nil {
+	err = proc.Kill()
+	if err != nil {
 		reply.Success = false
 		reply.Message = fmt.Sprintf("Falha ao finalizar PID %d: %v", args.PID, err)
 		return nil
