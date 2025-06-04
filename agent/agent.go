@@ -82,6 +82,9 @@ func main() {
 		publicRPC = fmt.Sprintf("0.0.0.0:%s", rpcPort)
 	}
 
+	// DEBUG: imprima publicRPC para verificar se o env foi lido corretamente
+	log.Printf("DEBUG: AGENT_RPC_ADDR registrado como %q\n", publicRPC)
+
 	// 4. Registrando-se no servidor central (tenta até obter 200 OK)
 	go func() {
 		for {
