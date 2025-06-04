@@ -1,6 +1,7 @@
 package main
 
 import (
+	"SOTrabalhoFinal/entities"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,44 +14,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// --- Tipos de dados internos ---
-
-// AgentInfo guarda as informações de cada agente registrado.
-type AgentInfo struct {
-	ID      string // ex: hostname
-	RPCAddr string // ex: "192.168.0.10:9000"
-}
-
 // Mapa de agentes (protegido por mutex)
 var (
 	agentsMu sync.RWMutex
-	agents   = map[string]AgentInfo{} // chave: AgentID
+	agents   = map[string]entities.AgentInfo{} // chave: AgentID
 )
-
-// Payload que o agente envia no POST /register
-type RegisterPayload struct {
-	AgentID string `json:"agent_id"`
-	RPCAddr string `json:"rpc_addr"`
-}
-
-// ProcessInfo (igual à do agente, para desserializar resposta RPC)
-type ProcessInfo struct {
-	PID    int32   `json:"pid"`
-	Name   string  `json:"name"`
-	CPU    float64 `json:"cpu"`
-	Memory float32 `json:"memory"`
-}
-
-// Argumentos para KillProcess RPC
-type KillArgs struct {
-	PID int32 `json:"pid"`
-}
-
-// Resposta de KillProcess RPC
-type KillReply struct {
-	Success bool   `json:"success"`
-	Message string `json:"message,omitempty"`
-}
 
 // --- WebSocket upgrader ---
 var upgrader = websocket.Upgrader{
@@ -64,8 +32,9 @@ var upgrader = websocket.Upgrader{
 
 // registerHandler recebe {agent_id, rpc_addr} e armazena no mapa.
 func registerHandler(w http.ResponseWriter, r *http.Request) {
-	var payload RegisterPayload
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	var payload entities.RegisterPayload
+	err := json.NewDecoder(r.Body).Decode(&payload)
+	if err != nil {
 		http.Error(w, "JSON inválido", http.StatusBadRequest)
 		return
 	}
@@ -75,7 +44,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentsMu.Lock()
-	agents[payload.AgentID] = AgentInfo{
+	agents[payload.AgentID] = entities.AgentInfo{
 		ID:      payload.AgentID,
 		RPCAddr: payload.RPCAddr,
 	}
@@ -90,7 +59,7 @@ func listAgentsHandler(w http.ResponseWriter, r *http.Request) {
 	agentsMu.RLock()
 	defer agentsMu.RUnlock()
 
-	var list []AgentInfo
+	var list []entities.AgentInfo
 	for _, a := range agents {
 		list = append(list, a)
 	}
@@ -118,8 +87,8 @@ func getProcessesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	var processos []ProcessInfo
-	if err := client.Call("AgentService.GetProcesses", struct{}{}, &processos); err != nil {
+	var processos []entities.ProcessInfo
+	if err = client.Call("AgentService.GetProcesses", struct{}{}, &processos); err != nil {
 		http.Error(w, fmt.Sprintf("RPC GetProcesses falhou: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -141,8 +110,9 @@ func killProcessHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var args KillArgs
-	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+	var args entities.KillArgs
+	err := json.NewDecoder(r.Body).Decode(&args)
+	if err != nil {
 		http.Error(w, "JSON inválido", http.StatusBadRequest)
 		return
 	}
@@ -154,8 +124,9 @@ func killProcessHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	var reply KillReply
-	if err := client.Call("AgentService.KillProcess", &args, &reply); err != nil {
+	var reply entities.KillReply
+	err = client.Call("AgentService.KillProcess", &args, &reply)
+	if err != nil {
 		http.Error(w, fmt.Sprintf("RPC KillProcess falhou: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -198,15 +169,17 @@ func streamProcessesHandler(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-ticker.C:
-			var processos []ProcessInfo
-			if err := client.Call("AgentService.GetProcesses", struct{}{}, &processos); err != nil {
+			var processos []entities.ProcessInfo
+			err = client.Call("AgentService.GetProcesses", struct{}{}, &processos)
+			if err != nil {
 				// Se falhar a chamada RPC, encerramos o loop e fechamos o WS
 				return
 			}
 			// Converte para JSON
 			data, _ := json.Marshal(processos)
 			// Envia pelo WebSocket
-			if err := wsConn.WriteMessage(websocket.TextMessage, data); err != nil {
+			err = wsConn.WriteMessage(websocket.TextMessage, data)
+			if err != nil {
 				// Se erro de escrita (cliente desconectou), encerra loop
 				return
 			}
