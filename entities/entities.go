@@ -14,7 +14,9 @@ type RegisterPayload struct {
 // ProcessInfo (igual à do agente, para desserializar resposta RPC)
 type ProcessInfo struct {
 	PID    int32   `json:"pid"`
-	Name   string  `json:"name"`
+	Name   string  `json:"name"`  // só para exibir
+	Name2  string  `json:"name2"` // só para exibir
+	Path   string  `json:"path"`  // para "start" depois
 	CPU    float64 `json:"cpu"`
 	Memory float32 `json:"memory"`
 }
@@ -28,4 +30,9 @@ type KillArgs struct {
 type KillReply struct {
 	Success bool   `json:"success"`
 	Message string `json:"message,omitempty"`
+}
+
+type ServiceReply struct {
+	Success bool
+	Message string
 }

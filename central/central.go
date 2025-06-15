@@ -14,13 +14,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Mapa de agentes (protegido por mutex)
 var (
 	agentsMu sync.RWMutex
 	agents   = map[string]entities.AgentInfo{} // chave: AgentID
 )
 
-// --- WebSocket upgrader ---
+var killedProcesses = map[string][]entities.ProcessInfo{}
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		// Em produção, valide a origem (Origin) conforme necessário.
@@ -28,9 +28,6 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// --- Handlers HTTP ---
-
-// registerHandler recebe {agent_id, rpc_addr} e armazena no mapa.
 func registerHandler(w http.ResponseWriter, r *http.Request) {
 	var payload entities.RegisterPayload
 	err := json.NewDecoder(r.Body).Decode(&payload)
@@ -54,7 +51,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "OK")
 }
 
-// listAgentsHandler retorna JSON com todos os agentes registrados.
 func listAgentsHandler(w http.ResponseWriter, r *http.Request) {
 	agentsMu.RLock()
 	defer agentsMu.RUnlock()
@@ -67,7 +63,6 @@ func listAgentsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(list)
 }
 
-// getProcessesHandler conecta via RPC ao agente e retorna lista de processos.
 func getProcessesHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	agentID := vars["id"]
@@ -88,7 +83,8 @@ func getProcessesHandler(w http.ResponseWriter, r *http.Request) {
 	defer client.Close()
 
 	var processos []entities.ProcessInfo
-	if err = client.Call("AgentService.GetProcesses", struct{}{}, &processos); err != nil {
+	err = client.Call("AgentService.GetProcesses", struct{}{}, &processos)
+	if err != nil {
 		http.Error(w, fmt.Sprintf("RPC GetProcesses falhou: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -97,7 +93,6 @@ func getProcessesHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(processos)
 }
 
-// killProcessHandler faz RPC KillProcess no agente correspondente.
 func killProcessHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	agentID := vars["id"]
@@ -124,6 +119,21 @@ func killProcessHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
+	// 1) obter lista atual de processos para capturar o nome
+	var procs []entities.ProcessInfo
+	err = client.Call("AgentService.GetProcesses", struct{}{}, &procs)
+	if err != nil {
+		// se falhar, continuamos mesmo assim (vai matar pelo PID)
+	}
+	procName := ""
+	for _, p := range procs {
+		if p.PID == args.PID {
+			procName = p.Name
+			break
+		}
+	}
+
+	// 2) matar o processo
 	var reply entities.KillReply
 	err = client.Call("AgentService.KillProcess", &args, &reply)
 	if err != nil {
@@ -131,11 +141,98 @@ func killProcessHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 3) se matou com sucesso, guarda PID + nome na lista de mortos
+
+	if reply.Success {
+		killedProcesses[agentID] = append(killedProcesses[agentID], entities.ProcessInfo{
+			PID:  args.PID,
+			Name: procName,
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(reply)
 }
 
-// streamProcessesHandler abre um WebSocket e envia, a cada segundo, a lista de processos do agente.
+// startServiceHandler chama RPC StartService no agente
+func startServiceHandler(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	agentsMu.RLock()
+	info, ok := agents[id]
+	agentsMu.RUnlock()
+	if !ok {
+		http.Error(w, "Agente não encontrado", http.StatusNotFound)
+		return
+	}
+
+	var payload struct{ Name string }
+	err := json.NewDecoder(r.Body).Decode(&payload)
+	if err != nil {
+		http.Error(w, "JSON inválido", http.StatusBadRequest)
+		return
+	}
+
+	client, err := rpc.Dial("tcp", info.RPCAddr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer client.Close()
+
+	// use o tipo correto aqui:
+	var svcReply entities.ServiceReply
+	err = client.Call("AgentService.StartService", payload.Name, &svcReply)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": svcReply.Success,
+		"message": svcReply.Message,
+	})
+}
+
+func stopServiceHandler(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	agentsMu.RLock()
+	info, ok := agents[id]
+	agentsMu.RUnlock()
+	if !ok {
+		http.Error(w, "Agente não encontrado", http.StatusNotFound)
+		return
+	}
+
+	var payload struct{ Name string }
+	err := json.NewDecoder(r.Body).Decode(&payload)
+	if err != nil {
+		http.Error(w, "JSON inválido", http.StatusBadRequest)
+		return
+	}
+
+	client, err := rpc.Dial("tcp", info.RPCAddr)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer client.Close()
+
+	// use também ServiceReply aqui:
+	var svcReply entities.ServiceReply
+	err = client.Call("AgentService.StopService", payload.Name, &svcReply)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": svcReply.Success,
+		"message": svcReply.Message,
+	})
+}
+
 func streamProcessesHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	agentID := vars["id"]
@@ -175,9 +272,7 @@ func streamProcessesHandler(w http.ResponseWriter, r *http.Request) {
 				// Se falhar a chamada RPC, encerramos o loop e fechamos o WS
 				return
 			}
-			// Converte para JSON
 			data, _ := json.Marshal(processos)
-			// Envia pelo WebSocket
 			err = wsConn.WriteMessage(websocket.TextMessage, data)
 			if err != nil {
 				// Se erro de escrita (cliente desconectou), encerra loop
@@ -191,14 +286,19 @@ func main() {
 	r := mux.NewRouter()
 
 	// Rota para registro de agentes
+	// QUEM CHAMA É O CMD OU POWERHELL NA HORA DE RODAR OS COMANDOS
 	r.HandleFunc("/register", registerHandler).Methods("POST")
 
 	// Rotas da API
+	// TA TUDO DENTRO DO INDEX.HTML
 	r.HandleFunc("/agents", listAgentsHandler).Methods("GET")
 	r.HandleFunc("/agents/{id}/processes", getProcessesHandler).Methods("GET")
 	r.HandleFunc("/agents/{id}/kill", killProcessHandler).Methods("POST")
+	r.HandleFunc("/agents/{id}/start", startServiceHandler).Methods("POST")
+	r.HandleFunc("/agents/{id}/stop", stopServiceHandler).Methods("POST")
 
 	// Nova rota: WebSocket para streaming de processos
+	// TA TUDO DENTRO DO INDEX.HTML
 	r.HandleFunc("/agents/{id}/stream", streamProcessesHandler)
 
 	// Servir arquivos estáticos (HTML/JS) em / → ./static/index.html

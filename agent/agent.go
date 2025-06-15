@@ -10,6 +10,9 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	ps "github.com/shirou/gopsutil/v3/process"
@@ -18,28 +21,79 @@ import (
 type AgentService struct{}
 
 func (s *AgentService) GetProcesses(_ struct{}, reply *[]entities.ProcessInfo) error {
-	processList, err := ps.Processes()
+	procs, err := ps.Processes()
 	if err != nil {
 		return err
 	}
-	var resultados []entities.ProcessInfo
-	for _, p := range processList {
-		name, err := p.Name()
-		if err != nil {
-			continue
+
+	var out []entities.ProcessInfo
+	for _, p := range procs {
+		// 1) tenta o Name()
+		name, _ := p.Name()
+
+		// 2) tenta Exe() para obter o caminho completo
+		exePath, _ := p.Exe()
+
+		// 3) se Name vazio, usa o basename do exePath
+		if name == "" && exePath != "" {
+			name = filepath.Base(exePath)
 		}
-		cpuPercent, _ := p.CPUPercent()
-		memPercent, _ := p.MemoryPercent()
-		resultados = append(resultados, entities.ProcessInfo{
+
+		// 4) se ainda vazio, fallback para Cmdline()
+		if name == "" {
+			if cmd, err := p.Cmdline(); err == nil && cmd != "" {
+				parts := strings.Fields(cmd)
+				name = filepath.Base(parts[0])
+			}
+		}
+
+		// 5) marca desconhecido
+		if name == "" {
+			name = "<unknown>"
+		}
+
+		cpu, _ := p.CPUPercent()
+		mem, _ := p.MemoryPercent()
+
+		name2, _ := p.Name()
+
+		out = append(out, entities.ProcessInfo{
 			PID:    p.Pid,
-			Name:   name,
-			CPU:    cpuPercent,
-			Memory: memPercent,
+			Name:   name,    // para exibição
+			Name2:  name2,   // para exibição
+			Path:   exePath, // para reinício
+			CPU:    cpu,
+			Memory: mem,
 		})
 	}
-	*reply = resultados
+
+	*reply = out
 	return nil
 }
+
+//func (s *AgentService) GetProcesses(_ struct{}, reply *[]entities.ProcessInfo) error {
+//	processList, err := ps.Processes()
+//	if err != nil {
+//		return err
+//	}
+//	var resultados []entities.ProcessInfo
+//	for _, p := range processList {
+//		name, err := p.Name()
+//		if err != nil {
+//			continue
+//		}
+//		cpuPercent, _ := p.CPUPercent()
+//		memPercent, _ := p.MemoryPercent()
+//		resultados = append(resultados, entities.ProcessInfo{
+//			PID:    p.Pid,
+//			Name:   name,
+//			CPU:    cpuPercent,
+//			Memory: memPercent,
+//		})
+//	}
+//	*reply = resultados
+//	return nil
+//}
 
 func (s *AgentService) KillProcess(args *entities.KillArgs, reply *entities.KillReply) error {
 	proc, err := os.FindProcess(int(args.PID))
@@ -55,6 +109,31 @@ func (s *AgentService) KillProcess(args *entities.KillArgs, reply *entities.Kill
 		return nil
 	}
 	reply.Success = true
+	return nil
+}
+
+func (s *AgentService) StopService(name string, reply *entities.ServiceReply) error {
+	// parar o serviço de forma limpa
+	cmd := exec.Command("sc", "stop", name)
+	if err := cmd.Run(); err != nil {
+		reply.Success = false
+		reply.Message = err.Error()
+	} else {
+		reply.Success = true
+	}
+	return nil
+}
+
+// StartService inicia um serviço pelo nome
+func (s *AgentService) StartService(path string, reply *entities.ServiceReply) error {
+	// supondo que path = caminho completo para o exe
+	cmd := exec.Command("cmd", "/C", "start", "", path)
+	if err := cmd.Start(); err != nil {
+		reply.Success = false
+		reply.Message = err.Error()
+	} else {
+		reply.Success = true
+	}
 	return nil
 }
 
