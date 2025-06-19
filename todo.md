@@ -248,9 +248,12 @@ TTL: 3600
 
 
 ssh -R 9100:localhost:9000 root@147.93.35.118
+
+PARA FAZER O TUNELAMENTO
 ssh -R 9103:localhost:9000 root@147.93.35.118
+Guiguawe22@@
 
-
+RODAR NA MAQUINA QUE QUER MONITORAR
 $env:CENTRAL_URL    = "http://monitoraqui.shop:8080/register"
 $env:AGENT_RPC_ADDR = "127.0.0.1:9103"
 .\agent.exe
